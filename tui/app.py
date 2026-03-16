@@ -532,8 +532,9 @@ class ThemaApp(App):
         # Collect params from input fields
         path_params, query_params = self._collect_params()
 
-        # Substitute path params
-        path = ep.path
+        # Build full path with server prefix (e.g. "/v1") from OpenAPI schema
+        server_path = self.schema.server_path if self.schema else ""
+        path = f"{server_path}{ep.path}"
         for name in re.findall(r"\{(\w+)\}", path):
             if name in path_params:
                 path = path.replace(f"{{{name}}}", path_params[name])

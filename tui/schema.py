@@ -47,6 +47,7 @@ class Endpoint:
 class APISchema:
     title: str
     version: str
+    server_path: str = ""  # e.g. "/v1" — prefix for all endpoint paths
     endpoints: list[Endpoint] = field(default_factory=list)
 
     def by_tag(self) -> dict[str, list[Endpoint]]:
@@ -218,8 +219,15 @@ async def fetch_schema(base_url: str) -> APISchema:
     # Sort by path then method for consistent display
     endpoints.sort(key=lambda e: (e.path, e.method))
 
+    # Extract server path prefix (e.g. "/v1") from the servers field
+    server_path = ""
+    servers = raw.get("servers", [])
+    if servers:
+        server_path = servers[0].get("url", "").rstrip("/")
+
     return APISchema(
         title=raw.get("info", {}).get("title", "Thema API"),
         version=raw.get("info", {}).get("version", ""),
+        server_path=server_path,
         endpoints=endpoints,
     )
