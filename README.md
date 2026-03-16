@@ -4,21 +4,22 @@ Interactive terminal tool for browsing and testing Thema API endpoints.
 
 Fetches the OpenAPI schema dynamically on startup — always shows the latest endpoints.
 
-## One-liner (no clone needed)
+## One-liner (like npx — no clone needed)
+
+Just `python3` and `curl`:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Thema-AI/thema-api-explorer/main/run-remote.sh | bash
+```
+
+First run installs to `~/.thema-api-explorer/`. Subsequent runs auto-update and start instantly.
+
+Or with `pipx` / `uv`:
 
 ```bash
 pipx run --spec git+https://github.com/Thema-AI/thema-api-explorer.git thema-api-explorer
-```
-
-Or with `uv`:
-
-```bash
 uvx --from git+https://github.com/Thema-AI/thema-api-explorer.git thema-api-explorer
 ```
-
-Anyone with Python 3.11+ and `pipx` (or `uv`) can run it directly — no clone, no venv setup.
-
-> Install pipx: `pip install pipx` / `brew install pipx`
 
 ## Quick Start (from clone)
 
