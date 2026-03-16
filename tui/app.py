@@ -172,6 +172,8 @@ class SetupScreen(ModalScreen[tuple[str, str]]):
     def on_option_selected(self, event: OptionList.OptionSelected) -> None:
         if event.option_list.id == "setup-env":
             self.query_one("#setup-svc", OptionList).focus()
+        elif event.option_list.id == "setup-svc":
+            self._submit()
 
     def _submit(self) -> None:
         env_list = self.query_one("#setup-env", OptionList)
