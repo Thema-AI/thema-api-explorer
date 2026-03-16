@@ -12,12 +12,12 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
+    Collapsible,
     Footer,
     Header,
     Input,
     Label,
     OptionList,
-    RichLog,
     Static,
     TextArea,
     Tree,
@@ -42,34 +42,16 @@ from tui.schema import APISchema, Endpoint, fetch_schema, generate_example
 
 
 class LoginScreen(ModalScreen[tuple[str, str] | None]):
-    """Modal screen for entering credentials."""
-
     CSS = """
-    LoginScreen {
-        align: center middle;
-    }
+    LoginScreen { align: center middle; }
     #login-box {
-        width: 60;
-        height: auto;
-        max-height: 20;
-        border: thick $accent;
-        background: $surface;
-        padding: 1 2;
+        width: 60; height: auto; max-height: 20;
+        border: thick $accent; background: $surface; padding: 1 2;
     }
-    #login-box Label {
-        margin-bottom: 1;
-    }
-    #login-box Input {
-        margin-bottom: 1;
-    }
-    #login-buttons {
-        height: auto;
-        margin-top: 1;
-        align-horizontal: right;
-    }
-    #login-buttons Button {
-        margin-left: 1;
-    }
+    #login-box Label { margin-bottom: 1; }
+    #login-box Input { margin-bottom: 1; }
+    #login-buttons { height: auto; margin-top: 1; align-horizontal: right; }
+    #login-buttons Button { margin-left: 1; }
     """
 
     def compose(self) -> ComposeResult:
@@ -92,10 +74,10 @@ class LoginScreen(ModalScreen[tuple[str, str] | None]):
 
     @on(Button.Pressed, "#login-submit")
     def submit(self) -> None:
-        username = self.query_one("#login-username", Input).value.strip()
-        password = self.query_one("#login-password", Input).value
-        if username and password:
-            self.dismiss((username, password))
+        u = self.query_one("#login-username", Input).value.strip()
+        p = self.query_one("#login-password", Input).value
+        if u and p:
+            self.dismiss((u, p))
 
     @on(Input.Submitted)
     def on_input_submitted(self) -> None:
@@ -103,32 +85,21 @@ class LoginScreen(ModalScreen[tuple[str, str] | None]):
 
 
 # ---------------------------------------------------------------------------
-# Environment selector modal
+# Environment / Service selectors
 # ---------------------------------------------------------------------------
 
 
 class EnvScreen(ModalScreen[str | None]):
     CSS = """
-    EnvScreen {
-        align: center middle;
-    }
-    #env-box {
-        width: 40;
-        height: auto;
-        max-height: 22;
-        border: thick $accent;
-        background: $surface;
-        padding: 1 2;
-    }
+    EnvScreen { align: center middle; }
+    #env-box { width: 40; height: auto; max-height: 22;
+               border: thick $accent; background: $surface; padding: 1 2; }
     """
 
     def compose(self) -> ComposeResult:
         with Vertical(id="env-box"):
             yield Label("Select Environment")
-            yield OptionList(
-                *[Option(env, id=env) for env in ENVS],
-                id="env-list",
-            )
+            yield OptionList(*[Option(env, id=env) for env in ENVS], id="env-list")
 
     def on_mount(self) -> None:
         self.query_one("#env-list", OptionList).focus()
@@ -138,23 +109,11 @@ class EnvScreen(ModalScreen[str | None]):
         self.dismiss(ENVS[event.option_index])
 
 
-# ---------------------------------------------------------------------------
-# Service selector modal
-# ---------------------------------------------------------------------------
-
-
 class ServiceScreen(ModalScreen[str | None]):
     CSS = """
-    ServiceScreen {
-        align: center middle;
-    }
-    #svc-box {
-        width: 40;
-        height: auto;
-        border: thick $accent;
-        background: $surface;
-        padding: 1 2;
-    }
+    ServiceScreen { align: center middle; }
+    #svc-box { width: 40; height: auto; border: thick $accent;
+               background: $surface; padding: 1 2; }
     """
 
     def compose(self) -> ComposeResult:
@@ -179,38 +138,27 @@ class ServiceScreen(ModalScreen[str | None]):
 # ---------------------------------------------------------------------------
 
 
-class SetupScreen(ModalScreen[tuple[str, str] | None]):
+class SetupScreen(ModalScreen[tuple[str, str]]):
     """First-run wizard: pick env and service."""
 
     CSS = """
-    SetupScreen {
-        align: center middle;
-    }
+    SetupScreen { align: center middle; }
     #setup-box {
-        width: 64;
-        height: auto;
-        max-height: 26;
-        border: thick $accent;
-        background: $surface;
-        padding: 1 2;
+        width: 64; height: auto; max-height: 26;
+        border: thick $accent; background: $surface; padding: 1 2;
     }
-    #setup-box Label {
-        margin-bottom: 1;
-    }
-    #setup-buttons {
-        height: auto;
-        margin-top: 1;
-        align-horizontal: right;
-    }
-    #setup-buttons Button {
-        margin-left: 1;
-    }
+    #setup-box Label { margin-bottom: 1; }
+    #setup-buttons { height: auto; margin-top: 1; align-horizontal: right; }
+    #setup-buttons Button { margin-left: 1; }
     """
 
     def compose(self) -> ComposeResult:
         with Vertical(id="setup-box"):
-            yield Label("[bold]Welcome to Thema API TUI[/]")
-            yield Label("Choose your environment and service to get started.\nYou can login later with [bold]l[/].\n")
+            yield Label("[bold]Welcome to Thema API Explorer[/]")
+            yield Label(
+                "Choose your environment and service to get started.\n"
+                "You can login later with [bold]l[/].\n"
+            )
             yield Label("Environment:")
             yield OptionList(
                 *[Option(f"{env:14s} {BACKEND_URLS[env]}", id=env) for env in ENVS],
@@ -226,7 +174,6 @@ class SetupScreen(ModalScreen[tuple[str, str] | None]):
                 yield Button("Start", variant="primary", id="setup-go")
 
     def on_mount(self) -> None:
-        # Default highlight to dev (index 1)
         env_list = self.query_one("#setup-env", OptionList)
         env_list.highlighted = ENVS.index("dev")
         env_list.focus()
@@ -234,6 +181,12 @@ class SetupScreen(ModalScreen[tuple[str, str] | None]):
     @on(Button.Pressed, "#setup-go")
     def go(self) -> None:
         self._submit()
+
+    @on(OptionList.OptionSelected)
+    def on_option_selected(self, event: OptionList.OptionSelected) -> None:
+        # Move focus forward on selection
+        if event.option_list.id == "setup-env":
+            self.query_one("#setup-svc", OptionList).focus()
 
     def _submit(self) -> None:
         env_list = self.query_one("#setup-env", OptionList)
@@ -249,21 +202,10 @@ class SetupScreen(ModalScreen[tuple[str, str] | None]):
 
 
 class ParamRow(Horizontal):
-    """A single parameter label + input row."""
-
     DEFAULT_CSS = """
-    ParamRow {
-        height: auto;
-        margin-bottom: 1;
-    }
-    ParamRow .param-label {
-        width: 28;
-        height: 3;
-        padding: 1 1 0 0;
-    }
-    ParamRow .param-input {
-        width: 1fr;
-    }
+    ParamRow { height: auto; margin-bottom: 1; }
+    ParamRow .param-label { width: 28; height: 3; padding: 1 1 0 0; }
+    ParamRow .param-input { width: 1fr; }
     """
 
     def __init__(
@@ -288,9 +230,8 @@ class ParamRow(Horizontal):
             f"[bold]{self.param_name}[/]{req}\n[dim]{self.location} | {self.schema_type}[/]",
             classes="param-label",
         )
-        placeholder = self.default or self.schema_type
         yield Input(
-            placeholder=placeholder,
+            placeholder=self.default or self.schema_type,
             value=self.default or "",
             id=f"param-{self.location}-{self.param_name}",
             classes="param-input",
@@ -312,78 +253,45 @@ METHOD_COLORS = {
 
 class ThemaApp(App):
     CSS = """
-    #main-area {
-        height: 1fr;
-    }
-    #sidebar {
-        width: 44;
-        min-width: 30;
-        border-right: solid $accent;
-    }
-    #sidebar-header {
-        height: auto;
-        padding: 0 1;
-        background: $boost;
-    }
-    #search-box {
-        margin: 0 1;
-    }
-    #endpoint-tree {
-        height: 1fr;
-    }
-    #detail-area {
-        width: 1fr;
-    }
+    #main-area { height: 1fr; }
+    #sidebar { width: 44; min-width: 30; border-right: solid $accent; }
+    #sidebar-header { height: auto; padding: 0 1; background: $boost; }
+    #search-box { margin: 0 1; }
+    #endpoint-tree { height: 1fr; }
+    #detail-area { width: 1fr; }
     #endpoint-info {
-        height: auto;
-        max-height: 6;
-        padding: 0 1;
+        height: auto; max-height: 6; padding: 0 1;
         border-bottom: solid $accent;
     }
     #params-area {
-        height: auto;
-        max-height: 20;
-        padding: 0 1;
+        height: auto; max-height: 18; padding: 0 1;
         border-bottom: solid $accent;
     }
-    #params-title {
-        height: auto;
-        padding: 0 0 1 0;
-    }
-    #body-area {
-        height: 1fr;
-        min-height: 6;
-    }
-    #body-editor {
-        height: 1fr;
-    }
+    #params-title { height: auto; padding: 0 0 1 0; }
+    #request-section { height: auto; min-height: 4; max-height: 16; }
+    #body-editor { height: auto; min-height: 3; max-height: 14; }
     #action-bar {
-        height: auto;
-        padding: 0 1;
-        align-horizontal: left;
-        border-bottom: solid $accent;
+        height: auto; padding: 0 1;
+        align-horizontal: left; border-bottom: solid $accent;
     }
-    #action-bar Button {
-        margin-right: 1;
+    #action-bar Button { margin-right: 1; }
+    #response-section { height: 1fr; min-height: 6; }
+    #response-toolbar {
+        height: auto; padding: 0 1; background: $boost;
     }
-    #response-header {
-        height: auto;
-        padding: 0 1;
-        background: $boost;
-    }
-    #response-log {
-        height: 1fr;
-        min-height: 8;
-    }
+    #response-toolbar Button { margin-left: 1; }
+    #response-status { width: 1fr; }
+    #response-body { height: 1fr; min-height: 4; }
     """
 
-    TITLE = "Thema API TUI"
+    TITLE = "Thema API Explorer"
     BINDINGS = [
-        Binding("e", "switch_env", "Environment", priority=True),
-        Binding("v", "switch_service", "Service", priority=True),
+        Binding("e", "switch_env", "Env", priority=True),
+        Binding("v", "switch_service", "Svc", priority=True),
         Binding("l", "login", "Login", priority=True),
         Binding("ctrl+r", "send_request", "Send", priority=True),
         Binding("/", "focus_search", "Search", priority=True),
+        Binding("f", "format_body", "Format", priority=True),
         Binding("q", "quit", "Quit", priority=True),
     ]
 
@@ -392,30 +300,49 @@ class ThemaApp(App):
         state = load_state()
         self.current_env: str = state.get("env", "dev")
         self.current_service: str = state.get("service", "backend")
-        base_url = (BACKEND_URLS if self.current_service == "backend" else ORACLE_URLS)[self.current_env]
+        base_url = (BACKEND_URLS if self.current_service == "backend" else ORACLE_URLS)[
+            self.current_env
+        ]
         self.api_client = APIClient(base_url=base_url)
         self.schema: APISchema | None = None
         self.selected_endpoint: Endpoint | None = None
-        self._is_first_run: bool = not state
+        self._is_first_run: bool = not state.get("setup_done")
+        self._last_response_raw: str = ""
+        self._response_is_raw: bool = False
+        self._last_request_summary: str = ""
 
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal(id="main-area"):
             with Vertical(id="sidebar"):
                 yield Static(self._sidebar_header_text(), id="sidebar-header")
-                yield Input(placeholder="Search endpoints...", id="search-box")
+                yield Input(placeholder="Search endpoints... (/)", id="search-box")
                 yield Tree("Endpoints", id="endpoint-tree")
             with Vertical(id="detail-area"):
                 yield Static("Select an endpoint from the tree.", id="endpoint-info")
                 with VerticalScroll(id="params-area"):
                     yield Static("", id="params-title")
-                with Vertical(id="body-area"):
-                    yield TextArea("", language="json", id="body-editor", theme="monokai")
+                with Collapsible(title="Request Body", id="request-section"):
+                    yield TextArea(
+                        "", language="json", id="body-editor", theme="monokai"
+                    )
                 with Horizontal(id="action-bar"):
-                    yield Button("Send (Ctrl+R)", variant="primary", id="btn-send")
+                    yield Button("Send (^R)", variant="primary", id="btn-send")
+                    yield Button("Format (f)", variant="default", id="btn-format")
+                    yield Button("Copy Req", variant="default", id="btn-copy-req")
                     yield Button("Reset", variant="default", id="btn-reset")
-                yield Static("", id="response-header")
-                yield RichLog(highlight=True, markup=True, wrap=True, id="response-log")
+                with Collapsible(title="Response", id="response-section"):
+                    with Horizontal(id="response-toolbar"):
+                        yield Static("", id="response-status")
+                        yield Button("Raw", variant="default", id="btn-raw-toggle")
+                        yield Button("Copy", variant="default", id="btn-copy-resp")
+                    yield TextArea(
+                        "",
+                        language="json",
+                        id="response-body",
+                        theme="monokai",
+                        read_only=True,
+                    )
         yield Footer()
 
     def on_mount(self) -> None:
@@ -425,13 +352,12 @@ class ThemaApp(App):
         else:
             self._auto_login_and_load()
 
-    def _on_setup_done(self, result: tuple[str, str] | None) -> None:
-        if result:
-            env, service = result
-            self.current_env = env
-            self.current_service = service
-            self._update_client()
-            self._save_session_state()
+    def _on_setup_done(self, result: tuple[str, str]) -> None:
+        env, service = result
+        self.current_env = env
+        self.current_service = service
+        self._update_client()
+        self._save_session_state()
         self._auto_login_and_load()
 
     # ------------------------------------------------------------------
@@ -443,24 +369,25 @@ class ThemaApp(App):
         creds = get_env_creds(self.current_env)
         if creds:
             username, password = creds
-            self._log(f"Authenticating as {username}...")
+            self.notify(f"Authenticating as {username}...")
             resp = await self.api_client.authenticate(username, password)
             if resp.ok:
-                self._log(f"Authenticated ({resp.elapsed_ms:.0f}ms)")
+                self.notify(f"Authenticated ({resp.elapsed_ms:.0f}ms)", severity="information")
             else:
-                self._log(f"[red]Auth failed:[/] {resp.status_code} {resp.body[:200]}")
+                self.notify(f"Auth failed: {resp.status_code}", severity="error")
 
         base_url = self._current_base_url()
-        self._log(f"Fetching schema from {base_url}/v1/openapi.json ...")
+        self.notify(f"Loading schema from {base_url}...")
         try:
             self.schema = await fetch_schema(base_url)
-            self._log(
-                f"Loaded {len(self.schema.endpoints)} endpoints "
-                f"({self.schema.title} v{self.schema.version})"
+            self.notify(
+                f"Loaded {len(self.schema.endpoints)} endpoints",
+                severity="information",
             )
             self._populate_tree()
         except Exception as exc:
-            self._log(f"[red]Failed to load schema:[/] {exc}")
+            self.notify(f"Failed to load schema: {exc}", severity="error")
+        self.query_one("#sidebar-header", Static).update(self._sidebar_header_text())
 
     def _populate_tree(self) -> None:
         tree = self.query_one("#endpoint-tree", Tree)
@@ -472,8 +399,7 @@ class ThemaApp(App):
             branch = tree.root.add(tag, expand=False)
             for ep in endpoints:
                 color = METHOD_COLORS.get(ep.method, "white")
-                label = f"[{color}]{ep.method:6s}[/] {ep.path}"
-                branch.add_leaf(label, data=ep)
+                branch.add_leaf(f"[{color}]{ep.method:6s}[/] {ep.path}", data=ep)
 
     # ------------------------------------------------------------------
     # Search
@@ -494,15 +420,15 @@ class ThemaApp(App):
         tree.root.expand()
 
         if not query:
-            # Restore full tree
             for tag, endpoints in sorted(self.schema.by_tag().items()):
                 branch = tree.root.add(tag, expand=False)
                 for ep in endpoints:
                     color = METHOD_COLORS.get(ep.method, "white")
-                    branch.add_leaf(f"[{color}]{ep.method:6s}[/] {ep.path}", data=ep)
+                    branch.add_leaf(
+                        f"[{color}]{ep.method:6s}[/] {ep.path}", data=ep
+                    )
             return
 
-        # Score and filter endpoints
         scored: list[tuple[int, Endpoint]] = []
         q = query.lower()
         for ep in self.schema.endpoints:
@@ -511,7 +437,6 @@ class ThemaApp(App):
                 scored.append((score, ep))
         scored.sort(key=lambda x: -x[0])
 
-        # Group results by tag, preserving score order
         from collections import OrderedDict
 
         groups: OrderedDict[str, list[Endpoint]] = OrderedDict()
@@ -523,12 +448,12 @@ class ThemaApp(App):
             branch = tree.root.add(tag, expand=True)
             for ep in endpoints:
                 color = METHOD_COLORS.get(ep.method, "white")
-                branch.add_leaf(f"[{color}]{ep.method:6s}[/] {ep.path}", data=ep)
+                branch.add_leaf(
+                    f"[{color}]{ep.method:6s}[/] {ep.path}", data=ep
+                )
 
     @staticmethod
     def _match_score(query: str, ep: Endpoint) -> int:
-        """Score an endpoint against a search query. Higher = better match, 0 = no match."""
-        # Split query into terms for multi-word matching
         terms = query.split()
         path_lower = ep.path.lower()
         method_lower = ep.method.lower()
@@ -536,7 +461,6 @@ class ThemaApp(App):
         op_lower = ep.operation_id.lower()
         tag_str = " ".join(ep.tags).lower()
 
-        # All terms must match somewhere for the endpoint to be included
         for term in terms:
             if not (
                 term in path_lower
@@ -547,7 +471,6 @@ class ThemaApp(App):
             ):
                 return 0
 
-        # Score: path matches are best, then method+path, then summary, then tag
         score = 0
         for term in terms:
             if term in path_lower:
@@ -563,7 +486,7 @@ class ThemaApp(App):
         return score
 
     # ------------------------------------------------------------------
-    # Endpoint selection — build param inputs
+    # Endpoint selection
     # ------------------------------------------------------------------
 
     @on(Tree.NodeSelected, "#endpoint-tree")
@@ -574,36 +497,35 @@ class ThemaApp(App):
     def _select_endpoint(self, ep: Endpoint) -> None:
         self.selected_endpoint = ep
 
-        # Info header
         color = METHOD_COLORS.get(ep.method, "white")
         info_parts = [f"[bold {color}]{ep.method}[/] {ep.path}"]
         if ep.summary:
             info_parts.append(f"[dim]{ep.summary}[/]")
         self.query_one("#endpoint-info", Static).update("\n".join(info_parts))
 
-        # Remove old param rows
+        # Params
         for old in self.query("ParamRow"):
             old.remove()
 
-        # Build param input fields
         all_params = ep.path_params + ep.query_params
         params_title = self.query_one("#params-title", Static)
         if all_params:
             params_title.update(f"[bold]Parameters[/] ({len(all_params)})")
             params_area = self.query_one("#params-area", VerticalScroll)
             for p in all_params:
-                row = ParamRow(
-                    param_name=p.name,
-                    location=p.location,
-                    schema_type=p.schema_type,
-                    required=p.required,
-                    default=p.default,
+                params_area.mount(
+                    ParamRow(
+                        param_name=p.name,
+                        location=p.location,
+                        schema_type=p.schema_type,
+                        required=p.required,
+                        default=p.default,
+                    )
                 )
-                params_area.mount(row)
         else:
             params_title.update("[dim]No parameters[/]")
 
-        # Body editor
+        # Body
         body_editor = self.query_one("#body-editor", TextArea)
         if ep.request_body_schema and ep.request_body_content_type == "application/json":
             example = generate_example(ep.request_body_schema, {})
@@ -611,18 +533,21 @@ class ThemaApp(App):
         else:
             body_editor.text = ""
 
+        # Clear response
+        self.query_one("#response-status", Static).update("")
+        self.query_one("#response-body", TextArea).text = ""
+        self._last_response_raw = ""
+
     # ------------------------------------------------------------------
-    # Collect param values from inputs
+    # Param collection
     # ------------------------------------------------------------------
 
     def _collect_params(self) -> tuple[dict[str, str], dict[str, str]]:
-        """Read all ParamRow inputs, return (path_params, query_params)."""
         path_params: dict[str, str] = {}
         query_params: dict[str, str] = {}
         for row in self.query("ParamRow"):
             assert isinstance(row, ParamRow)
-            input_widget = row.query_one(".param-input", Input)
-            value = input_widget.value.strip()
+            value = row.query_one(".param-input", Input).value.strip()
             if not value:
                 continue
             if row.location == "path":
@@ -663,14 +588,104 @@ class ThemaApp(App):
         if not result:
             return
         username, password = result
-        self._log(f"Authenticating as {username}...")
+        self.notify(f"Authenticating as {username}...")
         resp = await self.api_client.authenticate(username, password)
         if resp.ok:
             set_env_creds(self.current_env, username, password)
-            self._log(f"Authenticated and credentials saved ({resp.elapsed_ms:.0f}ms)")
+            self.notify("Authenticated and credentials saved", severity="information")
         else:
-            body_preview = resp.body[:300] if resp.body else resp.error
-            self._log(f"[red]Login failed:[/] {resp.status_code} {body_preview}")
+            self.notify(f"Login failed: {resp.status_code}", severity="error")
+        self.query_one("#sidebar-header", Static).update(self._sidebar_header_text())
+
+    # -- Format JSON body --
+
+    def action_format_body(self) -> None:
+        self._format_body()
+
+    @on(Button.Pressed, "#btn-format")
+    def on_format_pressed(self) -> None:
+        self._format_body()
+
+    def _format_body(self) -> None:
+        editor = self.query_one("#body-editor", TextArea)
+        text = editor.text.strip()
+        if not text:
+            return
+        try:
+            parsed = json.loads(text)
+            editor.text = json.dumps(parsed, indent=2, ensure_ascii=False)
+            self.notify("JSON formatted", severity="information")
+        except json.JSONDecodeError as exc:
+            self.notify(f"Invalid JSON: {exc}", severity="error")
+
+    # -- Copy --
+
+    @on(Button.Pressed, "#btn-copy-req")
+    def on_copy_req(self) -> None:
+        text = self._build_request_summary()
+        self.copy_to_clipboard(text)
+        self.notify("Request copied to clipboard")
+
+    @on(Button.Pressed, "#btn-copy-resp")
+    def on_copy_resp(self) -> None:
+        text = self._last_response_raw
+        if text:
+            self.copy_to_clipboard(text)
+            self.notify("Response copied to clipboard")
+        else:
+            self.notify("No response to copy", severity="warning")
+
+    def _build_request_summary(self) -> str:
+        """Build a copyable request summary (curl-style)."""
+        ep = self.selected_endpoint
+        if not ep:
+            return ""
+        path_params, query_params = self._collect_params()
+        server_path = self.schema.server_path if self.schema else ""
+        path = f"{server_path}{ep.path}"
+        for name in re.findall(r"\{(\w+)\}", path):
+            if name in path_params:
+                path = path.replace(f"{{{name}}}", path_params[name])
+
+        url = f"{self.api_client.base_url}{path}"
+        if query_params:
+            qs = "&".join(f"{k}={v}" for k, v in query_params.items())
+            url = f"{url}?{qs}"
+
+        body_text = self.query_one("#body-editor", TextArea).text.strip()
+        parts = [f"curl -X {ep.method} '{url}'"]
+        parts.append("  -H 'Content-Type: application/json'")
+        if self.api_client.auth.authenticated:
+            parts.append(f"  -H 'Authorization: Bearer {self.api_client.auth.access_token}'")
+        if body_text:
+            escaped = body_text.replace("'", "'\\''")
+            parts.append(f"  -d '{escaped}'")
+        return " \\\n".join(parts)
+
+    # -- Raw / Render toggle --
+
+    @on(Button.Pressed, "#btn-raw-toggle")
+    def on_raw_toggle(self) -> None:
+        if not self._last_response_raw:
+            return
+        self._response_is_raw = not self._response_is_raw
+        btn = self.query_one("#btn-raw-toggle", Button)
+        resp_body = self.query_one("#response-body", TextArea)
+        if self._response_is_raw:
+            btn.label = "Render"
+            resp_body.text = self._last_response_raw
+            resp_body.language = None
+        else:
+            btn.label = "Raw"
+            try:
+                parsed = json.loads(self._last_response_raw)
+                resp_body.text = json.dumps(parsed, indent=2, ensure_ascii=False)
+                resp_body.language = "json"
+            except (json.JSONDecodeError, ValueError):
+                resp_body.text = self._last_response_raw
+                resp_body.language = None
+
+    # -- Send --
 
     def action_send_request(self) -> None:
         self._do_send()
@@ -683,67 +698,66 @@ class ThemaApp(App):
     def on_reset_pressed(self) -> None:
         if not self.selected_endpoint:
             return
-        # Reset body
         ep = self.selected_endpoint
-        body_editor = self.query_one("#body-editor", TextArea)
+        editor = self.query_one("#body-editor", TextArea)
         if ep.request_body_schema and ep.request_body_content_type == "application/json":
             example = generate_example(ep.request_body_schema, {})
-            body_editor.text = json.dumps(example, indent=2)
+            editor.text = json.dumps(example, indent=2)
         else:
-            body_editor.text = ""
-        # Reset param inputs
+            editor.text = ""
         for row in self.query("ParamRow"):
             assert isinstance(row, ParamRow)
-            inp = row.query_one(".param-input", Input)
-            inp.value = row.default or ""
+            row.query_one(".param-input", Input).value = row.default or ""
 
     @work(exclusive=True)
     async def _do_send(self) -> None:
         ep = self.selected_endpoint
         if not ep:
-            self._log("[yellow]No endpoint selected[/]")
+            self.notify("No endpoint selected", severity="warning")
             return
 
         if not self.api_client.auth.authenticated:
             if "token" not in ep.path and "health" not in ep.path:
-                self._log("[yellow]Not authenticated. Press 'l' to login.[/]")
+                self.notify("Not authenticated. Press 'l' to login.", severity="warning")
                 return
 
-        # Collect params from input fields
+        # Auto-format body before sending
+        editor = self.query_one("#body-editor", TextArea)
+        body_text = editor.text.strip()
+        if body_text:
+            try:
+                parsed_check = json.loads(body_text)
+                editor.text = json.dumps(parsed_check, indent=2, ensure_ascii=False)
+            except json.JSONDecodeError as exc:
+                self.notify(f"Invalid JSON body: {exc}", severity="error")
+                return
+
         path_params, query_params = self._collect_params()
 
-        # Build full path with server prefix (e.g. "/v1") from OpenAPI schema
         server_path = self.schema.server_path if self.schema else ""
         path = f"{server_path}{ep.path}"
         for name in re.findall(r"\{(\w+)\}", path):
             if name in path_params:
                 path = path.replace(f"{{{name}}}", path_params[name])
 
-        # Check for unresolved path params
         missing = re.findall(r"\{(\w+)\}", path)
         if missing:
-            self._log(
-                f"[yellow]Missing required path params: {', '.join(missing)}. "
-                f"Fill them in the parameter fields above.[/]"
+            self.notify(
+                f"Missing path params: {', '.join(missing)}", severity="warning"
             )
             return
 
-        # Parse body
         json_body = None
         form_body = None
-        body_text = self.query_one("#body-editor", TextArea).text.strip()
+        body_text = editor.text.strip()
         if body_text:
-            try:
-                parsed = json.loads(body_text)
-            except json.JSONDecodeError as exc:
-                self._log(f"[red]Invalid JSON in body:[/] {exc}")
-                return
+            parsed = json.loads(body_text)
             if ep.request_body_content_type == "application/x-www-form-urlencoded":
                 form_body = {k: str(v) for k, v in parsed.items()}
             else:
                 json_body = parsed
 
-        self._log(f"[bold]{ep.method}[/] {path} ...")
+        self.notify(f"{ep.method} {path}...")
         resp = await self.api_client.request(
             method=ep.method,
             path=path,
@@ -754,23 +768,36 @@ class ThemaApp(App):
         self._show_response(resp)
 
     def _show_response(self, resp: APIResponse) -> None:
-        status_color = "green" if resp.ok else "red"
-        header = self.query_one("#response-header", Static)
+        status = self.query_one("#response-status", Static)
+        resp_body = self.query_one("#response-body", TextArea)
+        self._response_is_raw = False
+        self.query_one("#btn-raw-toggle", Button).label = "Raw"
+
         if resp.error:
-            header.update(f"[red]Error:[/] {resp.error} ({resp.elapsed_ms:.0f}ms)")
+            status.update(f"[red]Error[/] ({resp.elapsed_ms:.0f}ms)")
+            resp_body.text = resp.error
+            resp_body.language = None
+            self._last_response_raw = resp.error
             return
-        header.update(
-            f"[{status_color}]{resp.status_code}[/] ({resp.elapsed_ms:.0f}ms) "
+
+        color = "green" if resp.ok else "red"
+        status.update(
+            f"[{color}]{resp.status_code}[/] ({resp.elapsed_ms:.0f}ms) "
             f"[dim]{len(resp.body)} bytes[/]"
         )
 
-        log = self.query_one("#response-log", RichLog)
-        log.clear()
+        self._last_response_raw = resp.body
         try:
             parsed = json.loads(resp.body)
-            log.write(json.dumps(parsed, indent=2, ensure_ascii=False))
+            resp_body.text = json.dumps(parsed, indent=2, ensure_ascii=False)
+            resp_body.language = "json"
         except (json.JSONDecodeError, ValueError):
-            log.write(resp.body[:5000] if resp.body else "(empty)")
+            resp_body.text = resp.body[:10000] if resp.body else "(empty)"
+            resp_body.language = None
+
+        # Expand response section if collapsed
+        resp_section = self.query_one("#response-section", Collapsible)
+        resp_section.collapsed = False
 
     # ------------------------------------------------------------------
     # Helpers
@@ -798,12 +825,14 @@ class ThemaApp(App):
         )
 
     def _save_session_state(self) -> None:
-        save_state({"env": self.current_env, "service": self.current_service})
+        save_state({
+            "env": self.current_env,
+            "service": self.current_service,
+            "setup_done": True,
+        })
 
     def _log(self, msg: str) -> None:
-        log = self.query_one("#response-log", RichLog)
-        log.write(msg)
-        self.query_one("#sidebar-header", Static).update(self._sidebar_header_text())
+        self.notify(msg)
 
 
 def main() -> None:
