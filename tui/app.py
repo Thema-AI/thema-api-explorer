@@ -362,7 +362,9 @@ class ThemaApp(App):
     #request-header {
         height: auto; padding: 0 1; background: $boost;
     }
-    #request-header Button { margin-left: 1; }
+    #request-header { overflow: hidden; }
+    #request-header Button { margin-left: 0; min-width: 4; }
+    .panel-title { width: auto; padding: 0 1 0 0; }
     #json-lint {
         height: auto; max-height: 2; padding: 0 1;
     }
@@ -373,7 +375,8 @@ class ThemaApp(App):
     #response-header {
         height: auto; padding: 0 1; background: $boost;
     }
-    #response-header Button { margin-left: 1; }
+    #response-header { overflow: hidden; }
+    #response-header Button { margin-left: 0; min-width: 4; }
     #response-status { width: 1fr; }
     #response-body { height: 1fr; }
     """
@@ -873,7 +876,11 @@ class ThemaApp(App):
             return
         if not self.api_client.auth.authenticated:
             if "token" not in ep.path and "health" not in ep.path:
-                self.notify("Not authenticated. Press 'l' to login.", severity="warning")
+                self.notify(
+                    f"Not logged in on [{self.current_env}]. "
+                    f"Press 'l' to login or 'e' to switch env.",
+                    severity="warning",
+                )
                 return
 
         # Validate JSON first
