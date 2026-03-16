@@ -7,13 +7,13 @@ Fetches the OpenAPI schema dynamically on startup — always shows the latest en
 ## One-liner (no clone needed)
 
 ```bash
-pipx run --spec git+https://github.com/Thema-AI/thema-tui.git thema-tui
+pipx run --spec git+https://github.com/Thema-AI/thema-api-explorer.git thema-api-explorer
 ```
 
 Or with `uv`:
 
 ```bash
-uvx --from git+https://github.com/Thema-AI/thema-tui.git thema-tui
+uvx --from git+https://github.com/Thema-AI/thema-api-explorer.git thema-api-explorer
 ```
 
 Anyone with Python 3.11+ and `pipx` (or `uv`) can run it directly — no clone, no venv setup.
@@ -23,8 +23,8 @@ Anyone with Python 3.11+ and `pipx` (or `uv`) can run it directly — no clone, 
 ## Quick Start (from clone)
 
 ```bash
-git clone git@github.com:Thema-AI/thema-tui.git
-cd thema-tui
+git clone git@github.com:Thema-AI/thema-api-explorer.git
+cd thema-api-explorer
 ./run.sh
 ```
 

@@ -14,4 +14,4 @@ source .venv/bin/activate
 # Install/upgrade if needed (fast no-op when already installed)
 pip install -q -e .
 
-exec thema-tui "$@"
+exec thema-api-explorer "$@"
