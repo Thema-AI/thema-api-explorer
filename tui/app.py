@@ -30,6 +30,8 @@ from tui.config import (
     ENVS,
     ORACLE_URLS,
     get_env_creds,
+    load_state,
+    save_state,
     set_env_creds,
 )
 from tui.schema import APISchema, Endpoint, fetch_schema, generate_example
@@ -173,6 +175,75 @@ class ServiceScreen(ModalScreen[str | None]):
 
 
 # ---------------------------------------------------------------------------
+# First-run setup wizard
+# ---------------------------------------------------------------------------
+
+
+class SetupScreen(ModalScreen[tuple[str, str] | None]):
+    """First-run wizard: pick env and service."""
+
+    CSS = """
+    SetupScreen {
+        align: center middle;
+    }
+    #setup-box {
+        width: 64;
+        height: auto;
+        max-height: 26;
+        border: thick $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+    #setup-box Label {
+        margin-bottom: 1;
+    }
+    #setup-buttons {
+        height: auto;
+        margin-top: 1;
+        align-horizontal: right;
+    }
+    #setup-buttons Button {
+        margin-left: 1;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="setup-box"):
+            yield Label("[bold]Welcome to Thema API TUI[/]")
+            yield Label("Choose your environment and service to get started.\nYou can login later with [bold]l[/].\n")
+            yield Label("Environment:")
+            yield OptionList(
+                *[Option(f"{env:14s} {BACKEND_URLS[env]}", id=env) for env in ENVS],
+                id="setup-env",
+            )
+            yield Label("\nService:")
+            yield OptionList(
+                Option("backend", id="backend"),
+                Option("oracle", id="oracle"),
+                id="setup-svc",
+            )
+            with Horizontal(id="setup-buttons"):
+                yield Button("Start", variant="primary", id="setup-go")
+
+    def on_mount(self) -> None:
+        # Default highlight to dev (index 1)
+        env_list = self.query_one("#setup-env", OptionList)
+        env_list.highlighted = ENVS.index("dev")
+        env_list.focus()
+
+    @on(Button.Pressed, "#setup-go")
+    def go(self) -> None:
+        self._submit()
+
+    def _submit(self) -> None:
+        env_list = self.query_one("#setup-env", OptionList)
+        svc_list = self.query_one("#setup-svc", OptionList)
+        env_idx = env_list.highlighted if env_list.highlighted is not None else 1
+        svc_idx = svc_list.highlighted if svc_list.highlighted is not None else 0
+        self.dismiss((ENVS[env_idx], ["backend", "oracle"][svc_idx]))
+
+
+# ---------------------------------------------------------------------------
 # Param row widget
 # ---------------------------------------------------------------------------
 
@@ -254,6 +325,9 @@ class ThemaApp(App):
         padding: 0 1;
         background: $boost;
     }
+    #search-box {
+        margin: 0 1;
+    }
     #endpoint-tree {
         height: 1fr;
     }
@@ -309,22 +383,27 @@ class ThemaApp(App):
         Binding("v", "switch_service", "Service", priority=True),
         Binding("l", "login", "Login", priority=True),
         Binding("ctrl+r", "send_request", "Send", priority=True),
+        Binding("/", "focus_search", "Search", priority=True),
         Binding("q", "quit", "Quit", priority=True),
     ]
 
     def __init__(self) -> None:
         super().__init__()
-        self.current_env: str = "dev"
-        self.current_service: str = "backend"
-        self.api_client = APIClient(base_url=BACKEND_URLS["dev"])
+        state = load_state()
+        self.current_env: str = state.get("env", "dev")
+        self.current_service: str = state.get("service", "backend")
+        base_url = (BACKEND_URLS if self.current_service == "backend" else ORACLE_URLS)[self.current_env]
+        self.api_client = APIClient(base_url=base_url)
         self.schema: APISchema | None = None
         self.selected_endpoint: Endpoint | None = None
+        self._is_first_run: bool = not state
 
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal(id="main-area"):
             with Vertical(id="sidebar"):
                 yield Static(self._sidebar_header_text(), id="sidebar-header")
+                yield Input(placeholder="Search endpoints...", id="search-box")
                 yield Tree("Endpoints", id="endpoint-tree")
             with Vertical(id="detail-area"):
                 yield Static("Select an endpoint from the tree.", id="endpoint-info")
@@ -341,6 +420,18 @@ class ThemaApp(App):
 
     def on_mount(self) -> None:
         self.sub_title = f"{self.current_env} | {self.current_service}"
+        if self._is_first_run:
+            self.push_screen(SetupScreen(), self._on_setup_done)
+        else:
+            self._auto_login_and_load()
+
+    def _on_setup_done(self, result: tuple[str, str] | None) -> None:
+        if result:
+            env, service = result
+            self.current_env = env
+            self.current_service = service
+            self._update_client()
+            self._save_session_state()
         self._auto_login_and_load()
 
     # ------------------------------------------------------------------
@@ -383,6 +474,93 @@ class ThemaApp(App):
                 color = METHOD_COLORS.get(ep.method, "white")
                 label = f"[{color}]{ep.method:6s}[/] {ep.path}"
                 branch.add_leaf(label, data=ep)
+
+    # ------------------------------------------------------------------
+    # Search
+    # ------------------------------------------------------------------
+
+    def action_focus_search(self) -> None:
+        self.query_one("#search-box", Input).focus()
+
+    @on(Input.Changed, "#search-box")
+    def on_search_changed(self, event: Input.Changed) -> None:
+        self._filter_tree(event.value.strip())
+
+    def _filter_tree(self, query: str) -> None:
+        if not self.schema:
+            return
+        tree = self.query_one("#endpoint-tree", Tree)
+        tree.clear()
+        tree.root.expand()
+
+        if not query:
+            # Restore full tree
+            for tag, endpoints in sorted(self.schema.by_tag().items()):
+                branch = tree.root.add(tag, expand=False)
+                for ep in endpoints:
+                    color = METHOD_COLORS.get(ep.method, "white")
+                    branch.add_leaf(f"[{color}]{ep.method:6s}[/] {ep.path}", data=ep)
+            return
+
+        # Score and filter endpoints
+        scored: list[tuple[int, Endpoint]] = []
+        q = query.lower()
+        for ep in self.schema.endpoints:
+            score = self._match_score(q, ep)
+            if score > 0:
+                scored.append((score, ep))
+        scored.sort(key=lambda x: -x[0])
+
+        # Group results by tag, preserving score order
+        from collections import OrderedDict
+
+        groups: OrderedDict[str, list[Endpoint]] = OrderedDict()
+        for _score, ep in scored:
+            tag = ep.tags[0] if ep.tags else "other"
+            groups.setdefault(tag, []).append(ep)
+
+        for tag, endpoints in groups.items():
+            branch = tree.root.add(tag, expand=True)
+            for ep in endpoints:
+                color = METHOD_COLORS.get(ep.method, "white")
+                branch.add_leaf(f"[{color}]{ep.method:6s}[/] {ep.path}", data=ep)
+
+    @staticmethod
+    def _match_score(query: str, ep: Endpoint) -> int:
+        """Score an endpoint against a search query. Higher = better match, 0 = no match."""
+        # Split query into terms for multi-word matching
+        terms = query.split()
+        path_lower = ep.path.lower()
+        method_lower = ep.method.lower()
+        summary_lower = ep.summary.lower()
+        op_lower = ep.operation_id.lower()
+        tag_str = " ".join(ep.tags).lower()
+
+        # All terms must match somewhere for the endpoint to be included
+        for term in terms:
+            if not (
+                term in path_lower
+                or term in method_lower
+                or term in summary_lower
+                or term in op_lower
+                or term in tag_str
+            ):
+                return 0
+
+        # Score: path matches are best, then method+path, then summary, then tag
+        score = 0
+        for term in terms:
+            if term in path_lower:
+                score += 10
+            if term in method_lower:
+                score += 5
+            if term in summary_lower:
+                score += 3
+            if term in op_lower:
+                score += 2
+            if term in tag_str:
+                score += 1
+        return score
 
     # ------------------------------------------------------------------
     # Endpoint selection — build param inputs
@@ -463,6 +641,7 @@ class ThemaApp(App):
     def _on_env_selected(self, env: str | None) -> None:
         if env and env != self.current_env:
             self.current_env = env
+            self._save_session_state()
             self._update_client()
             self._auto_login_and_load()
 
@@ -472,6 +651,7 @@ class ThemaApp(App):
     def _on_service_selected(self, service: str | None) -> None:
         if service and service != self.current_service:
             self.current_service = service
+            self._save_session_state()
             self._update_client()
             self._auto_login_and_load()
 
@@ -616,6 +796,9 @@ class ThemaApp(App):
             f"{self._current_base_url()}\n"
             f"{auth}"
         )
+
+    def _save_session_state(self) -> None:
+        save_state({"env": self.current_env, "service": self.current_service})
 
     def _log(self, msg: str) -> None:
         log = self.query_one("#response-log", RichLog)

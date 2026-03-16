@@ -4,31 +4,43 @@ Interactive terminal tool for browsing and testing Thema API endpoints.
 
 Fetches the OpenAPI schema dynamically on startup — always shows the latest endpoints.
 
-## Quick Start
+## One-liner (no clone needed)
 
 ```bash
-git clone <repo-url>
+pipx run --spec git+https://github.com/Thema-AI/thema-tui.git thema-tui
+```
+
+Or with `uv`:
+
+```bash
+uvx --from git+https://github.com/Thema-AI/thema-tui.git thema-tui
+```
+
+Anyone with Python 3.11+ and `pipx` (or `uv`) can run it directly — no clone, no venv setup.
+
+> Install pipx: `pip install pipx` / `brew install pipx`
+
+## Quick Start (from clone)
+
+```bash
+git clone git@github.com:Thema-AI/thema-tui.git
 cd thema-tui
 ./run.sh
 ```
 
-That's it. The script creates a venv, installs deps, and launches the TUI.
+The script creates a venv, installs deps, and launches the TUI.
 
-## Alternative Setup
+## First Run
 
-```bash
-# with pip (any venv)
-pip install -e .
-thema-tui
+On first launch a setup wizard lets you pick your environment (defaults to **dev**) and service (defaults to **backend**). Your choice is remembered for next time.
 
-# or run directly
-python -m tui
-```
+Login later with `l` — credentials are validated against the API and saved per-environment.
 
 ## Keybindings
 
 | Key      | Action                         |
 |----------|--------------------------------|
+| `/`      | Search endpoints               |
 | `e`      | Switch environment             |
 | `v`      | Switch service (backend/oracle)|
 | `l`      | Login / set credentials        |
@@ -47,17 +59,20 @@ python -m tui
 
 ## Workflow
 
-1. Launch — defaults to **dev** environment, schema loads automatically
-2. Login (`l`) — enter email/password, validated against the API, saved for next time
-3. Browse endpoints in the left tree (grouped by API tag)
-4. Select an endpoint — body editor pre-fills with an example from the schema
-5. For path parameters, add `"_path_params": {"id": "your-uuid"}` to the JSON body
-6. For query parameters, add `"_query_params": {"key": "value"}`
-7. Send (`Ctrl+R`) — response appears in the bottom panel with status and timing
+1. Launch — setup wizard on first run, then schema loads automatically
+2. Search endpoints with `/` — matches path, method, summary, tags
+3. Select an endpoint — parameter inputs and body editor pre-fill from the schema
+4. Fill in path/query parameters in the input fields
+5. Edit the JSON body if needed
+6. Send (`Ctrl+R`) — response with status, timing, and formatted JSON
+7. Login (`l`) when you need authenticated endpoints
 
-## Credentials
+## Credentials & State
 
-Stored per-environment in `~/.thema-tui/credentials.json` (chmod 600). Auto-validated on startup.
+- Credentials: `~/.thema-tui/credentials.json` (chmod 600)
+- Session state (env, service): `~/.thema-tui/state.json`
+
+Both are auto-restored on next launch.
 
 ## Requirements
 

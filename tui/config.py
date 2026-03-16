@@ -60,3 +60,22 @@ def remove_env_creds(env: str) -> None:
     creds = load_all_credentials()
     creds.pop(env, None)
     save_all_credentials(creds)
+
+
+# ---------------------------------------------------------------------------
+# Last session state
+# ---------------------------------------------------------------------------
+
+STATE_FILE = CONFIG_DIR / "state.json"
+
+
+def load_state() -> dict:
+    _ensure_config_dir()
+    if STATE_FILE.exists():
+        return json.loads(STATE_FILE.read_text())
+    return {}
+
+
+def save_state(state: dict) -> None:
+    _ensure_config_dir()
+    STATE_FILE.write_text(json.dumps(state, indent=2))
