@@ -173,6 +173,60 @@ class ServiceScreen(ModalScreen[str | None]):
 
 
 # ---------------------------------------------------------------------------
+# Param row widget
+# ---------------------------------------------------------------------------
+
+
+class ParamRow(Horizontal):
+    """A single parameter label + input row."""
+
+    DEFAULT_CSS = """
+    ParamRow {
+        height: auto;
+        margin-bottom: 1;
+    }
+    ParamRow .param-label {
+        width: 28;
+        height: 3;
+        padding: 1 1 0 0;
+    }
+    ParamRow .param-input {
+        width: 1fr;
+    }
+    """
+
+    def __init__(
+        self,
+        param_name: str,
+        location: str,
+        schema_type: str,
+        required: bool,
+        default: str | None = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.param_name = param_name
+        self.location = location
+        self.schema_type = schema_type
+        self.required = required
+        self.default = default
+
+    def compose(self) -> ComposeResult:
+        req = " [red]*[/]" if self.required else ""
+        yield Static(
+            f"[bold]{self.param_name}[/]{req}\n[dim]{self.location} | {self.schema_type}[/]",
+            classes="param-label",
+        )
+        placeholder = self.default or self.schema_type
+        yield Input(
+            placeholder=placeholder,
+            value=self.default or "",
+            id=f"param-{self.location}-{self.param_name}",
+            classes="param-input",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Main Application
 # ---------------------------------------------------------------------------
 
@@ -208,32 +262,23 @@ class ThemaApp(App):
     }
     #endpoint-info {
         height: auto;
-        max-height: 8;
+        max-height: 6;
         padding: 0 1;
         border-bottom: solid $accent;
     }
     #params-area {
         height: auto;
-        max-height: 16;
+        max-height: 20;
         padding: 0 1;
         border-bottom: solid $accent;
     }
-    .param-row {
+    #params-title {
         height: auto;
-        layout: horizontal;
-    }
-    .param-label {
-        width: 20;
-        height: 3;
-        content-align-vertical: middle;
-    }
-    .param-input {
-        width: 1fr;
-        height: 3;
+        padding: 0 0 1 0;
     }
     #body-area {
         height: 1fr;
-        min-height: 8;
+        min-height: 6;
     }
     #body-editor {
         height: 1fr;
@@ -247,10 +292,6 @@ class ThemaApp(App):
     #action-bar Button {
         margin-right: 1;
     }
-    #response-area {
-        height: 1fr;
-        min-height: 10;
-    }
     #response-header {
         height: auto;
         padding: 0 1;
@@ -258,22 +299,17 @@ class ThemaApp(App):
     }
     #response-log {
         height: 1fr;
-    }
-    #status-bar {
-        height: auto;
-        padding: 0 1;
-        background: $boost;
-        dock: bottom;
+        min-height: 8;
     }
     """
 
     TITLE = "Thema API TUI"
     BINDINGS = [
-        Binding("e", "switch_env", "Environment"),
-        Binding("v", "switch_service", "Service"),
-        Binding("l", "login", "Login"),
-        Binding("ctrl+r", "send_request", "Send"),
-        Binding("q", "quit", "Quit"),
+        Binding("e", "switch_env", "Environment", priority=True),
+        Binding("v", "switch_service", "Service", priority=True),
+        Binding("l", "login", "Login", priority=True),
+        Binding("ctrl+r", "send_request", "Send", priority=True),
+        Binding("q", "quit", "Quit", priority=True),
     ]
 
     def __init__(self) -> None:
@@ -283,7 +319,6 @@ class ThemaApp(App):
         self.api_client = APIClient(base_url=BACKEND_URLS["dev"])
         self.schema: APISchema | None = None
         self.selected_endpoint: Endpoint | None = None
-        self._raw_openapi: dict = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -294,12 +329,12 @@ class ThemaApp(App):
             with Vertical(id="detail-area"):
                 yield Static("Select an endpoint from the tree.", id="endpoint-info")
                 with VerticalScroll(id="params-area"):
-                    yield Static("", id="params-container")
+                    yield Static("", id="params-title")
                 with Vertical(id="body-area"):
                     yield TextArea("", language="json", id="body-editor", theme="monokai")
                 with Horizontal(id="action-bar"):
                     yield Button("Send (Ctrl+R)", variant="primary", id="btn-send")
-                    yield Button("Reset Body", variant="default", id="btn-reset")
+                    yield Button("Reset", variant="default", id="btn-reset")
                 yield Static("", id="response-header")
                 yield RichLog(highlight=True, markup=True, wrap=True, id="response-log")
         yield Footer()
@@ -308,9 +343,12 @@ class ThemaApp(App):
         self.sub_title = f"{self.current_env} | {self.current_service}"
         self._auto_login_and_load()
 
+    # ------------------------------------------------------------------
+    # Schema loading
+    # ------------------------------------------------------------------
+
     @work(exclusive=True, group="init")
     async def _auto_login_and_load(self) -> None:
-        """Try saved creds, then load schema."""
         creds = get_env_creds(self.current_env)
         if creds:
             username, password = creds
@@ -321,7 +359,6 @@ class ThemaApp(App):
             else:
                 self._log(f"[red]Auth failed:[/] {resp.status_code} {resp.body[:200]}")
 
-        # Fetch schema (inline, not via another @work)
         base_url = self._current_base_url()
         self._log(f"Fetching schema from {base_url}/v1/openapi.json ...")
         try:
@@ -347,6 +384,10 @@ class ThemaApp(App):
                 label = f"[{color}]{ep.method:6s}[/] {ep.path}"
                 branch.add_leaf(label, data=ep)
 
+    # ------------------------------------------------------------------
+    # Endpoint selection — build param inputs
+    # ------------------------------------------------------------------
+
     @on(Tree.NodeSelected, "#endpoint-tree")
     def on_tree_select(self, event: Tree.NodeSelected) -> None:
         if event.node.data and isinstance(event.node.data, Endpoint):
@@ -355,21 +396,36 @@ class ThemaApp(App):
     def _select_endpoint(self, ep: Endpoint) -> None:
         self.selected_endpoint = ep
 
-        # Update info panel
+        # Info header
         color = METHOD_COLORS.get(ep.method, "white")
-        info_lines = [
-            f"[bold {color}]{ep.method}[/] {ep.path}",
-        ]
+        info_parts = [f"[bold {color}]{ep.method}[/] {ep.path}"]
         if ep.summary:
-            info_lines.append(f"[dim]{ep.summary}[/]")
-        if ep.description:
-            info_lines.append(f"{ep.description[:200]}")
-        self.query_one("#endpoint-info", Static).update("\n".join(info_lines))
+            info_parts.append(f"[dim]{ep.summary}[/]")
+        self.query_one("#endpoint-info", Static).update("\n".join(info_parts))
 
-        # Build parameter inputs
-        self._build_param_inputs(ep)
+        # Remove old param rows
+        for old in self.query("ParamRow"):
+            old.remove()
 
-        # Set body editor
+        # Build param input fields
+        all_params = ep.path_params + ep.query_params
+        params_title = self.query_one("#params-title", Static)
+        if all_params:
+            params_title.update(f"[bold]Parameters[/] ({len(all_params)})")
+            params_area = self.query_one("#params-area", VerticalScroll)
+            for p in all_params:
+                row = ParamRow(
+                    param_name=p.name,
+                    location=p.location,
+                    schema_type=p.schema_type,
+                    required=p.required,
+                    default=p.default,
+                )
+                params_area.mount(row)
+        else:
+            params_title.update("[dim]No parameters[/]")
+
+        # Body editor
         body_editor = self.query_one("#body-editor", TextArea)
         if ep.request_body_schema and ep.request_body_content_type == "application/json":
             example = generate_example(ep.request_body_schema, {})
@@ -377,29 +433,29 @@ class ThemaApp(App):
         else:
             body_editor.text = ""
 
-    def _build_param_inputs(self, ep: Endpoint) -> None:
-        container = self.query_one("#params-container", Static)
-        all_params = ep.path_params + ep.query_params
-        if not all_params:
-            container.update("[dim]No parameters[/]")
-            # Remove old dynamic inputs
-            for old in self.query(".dynamic-param"):
-                old.remove()
-            return
+    # ------------------------------------------------------------------
+    # Collect param values from inputs
+    # ------------------------------------------------------------------
 
-        lines = []
-        for old in self.query(".dynamic-param"):
-            old.remove()
+    def _collect_params(self) -> tuple[dict[str, str], dict[str, str]]:
+        """Read all ParamRow inputs, return (path_params, query_params)."""
+        path_params: dict[str, str] = {}
+        query_params: dict[str, str] = {}
+        for row in self.query("ParamRow"):
+            assert isinstance(row, ParamRow)
+            input_widget = row.query_one(".param-input", Input)
+            value = input_widget.value.strip()
+            if not value:
+                continue
+            if row.location == "path":
+                path_params[row.param_name] = value
+            elif row.location == "query":
+                query_params[row.param_name] = value
+        return path_params, query_params
 
-        for p in all_params:
-            req = "*" if p.required else ""
-            default_hint = f" (default: {p.default})" if p.default else ""
-            lines.append(f"  [bold]{p.name}[/]{req} [{p.location}] {p.schema_type}{default_hint}")
-        container.update("Parameters:\n" + "\n".join(lines))
-
-    # -----------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # Actions
-    # -----------------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     def action_switch_env(self) -> None:
         self.push_screen(EnvScreen(), self._on_env_selected)
@@ -445,9 +501,21 @@ class ThemaApp(App):
 
     @on(Button.Pressed, "#btn-reset")
     def on_reset_pressed(self) -> None:
-        if self.selected_endpoint and self.selected_endpoint.request_body_schema:
-            example = generate_example(self.selected_endpoint.request_body_schema, {})
-            self.query_one("#body-editor", TextArea).text = json.dumps(example, indent=2)
+        if not self.selected_endpoint:
+            return
+        # Reset body
+        ep = self.selected_endpoint
+        body_editor = self.query_one("#body-editor", TextArea)
+        if ep.request_body_schema and ep.request_body_content_type == "application/json":
+            example = generate_example(ep.request_body_schema, {})
+            body_editor.text = json.dumps(example, indent=2)
+        else:
+            body_editor.text = ""
+        # Reset param inputs
+        for row in self.query("ParamRow"):
+            assert isinstance(row, ParamRow)
+            inp = row.query_one(".param-input", Input)
+            inp.value = row.default or ""
 
     @work(exclusive=True)
     async def _do_send(self) -> None:
@@ -457,61 +525,42 @@ class ThemaApp(App):
             return
 
         if not self.api_client.auth.authenticated:
-            # Skip auth check for /token and /health
             if "token" not in ep.path and "health" not in ep.path:
                 self._log("[yellow]Not authenticated. Press 'l' to login.[/]")
                 return
 
-        # Build path with param substitution
+        # Collect params from input fields
+        path_params, query_params = self._collect_params()
+
+        # Substitute path params
         path = ep.path
-        query_params: dict[str, str] = {}
+        for name in re.findall(r"\{(\w+)\}", path):
+            if name in path_params:
+                path = path.replace(f"{{{name}}}", path_params[name])
 
-        # Parse path params from the body editor or use defaults
-        # For simplicity, prompt inline: extract {param} from path
-        path_param_names = re.findall(r"\{(\w+)\}", path)
-        if path_param_names:
-            # Try to get values from the info shown - for now use a simple approach
-            # The user can edit the path in the body
-            pass
+        # Check for unresolved path params
+        missing = re.findall(r"\{(\w+)\}", path)
+        if missing:
+            self._log(
+                f"[yellow]Missing required path params: {', '.join(missing)}. "
+                f"Fill them in the parameter fields above.[/]"
+            )
+            return
 
-        body_text = self.query_one("#body-editor", TextArea).text.strip()
-
-        # Parse the body
+        # Parse body
         json_body = None
         form_body = None
-        request_config: dict = {}
-
+        body_text = self.query_one("#body-editor", TextArea).text.strip()
         if body_text:
             try:
                 parsed = json.loads(body_text)
             except json.JSONDecodeError as exc:
-                self._log(f"[red]Invalid JSON in body editor:[/] {exc}")
+                self._log(f"[red]Invalid JSON in body:[/] {exc}")
                 return
-
-            # Check if user provided _path_params or _query_params in the body
-            if isinstance(parsed, dict):
-                if "_path_params" in parsed:
-                    for k, v in parsed.pop("_path_params").items():
-                        path = path.replace(f"{{{k}}}", str(v))
-                if "_query_params" in parsed:
-                    query_params = {
-                        k: str(v) for k, v in parsed.pop("_query_params").items()
-                    }
-                # If only meta-keys were present and body is now empty, don't send body
-                if parsed or ep.request_body_schema:
-                    if ep.request_body_content_type == "application/x-www-form-urlencoded":
-                        form_body = {k: str(v) for k, v in parsed.items()}
-                    else:
-                        json_body = parsed
-
-        # Check for unresolved path params
-        remaining = re.findall(r"\{(\w+)\}", path)
-        if remaining:
-            self._log(
-                f'[yellow]Path has unresolved params: {remaining}. '
-                f'Add "_path_params": {{"{remaining[0]}": "value"}} to the body JSON.[/]'
-            )
-            return
+            if ep.request_body_content_type == "application/x-www-form-urlencoded":
+                form_body = {k: str(v) for k, v in parsed.items()}
+            else:
+                json_body = parsed
 
         self._log(f"[bold]{ep.method}[/] {path} ...")
         resp = await self.api_client.request(
@@ -521,7 +570,6 @@ class ThemaApp(App):
             json_body=json_body,
             form_body=form_body,
         )
-
         self._show_response(resp)
 
     def _show_response(self, resp: APIResponse) -> None:
@@ -537,17 +585,15 @@ class ThemaApp(App):
 
         log = self.query_one("#response-log", RichLog)
         log.clear()
-
-        # Try to pretty-print JSON
         try:
             parsed = json.loads(resp.body)
             log.write(json.dumps(parsed, indent=2, ensure_ascii=False))
         except (json.JSONDecodeError, ValueError):
             log.write(resp.body[:5000] if resp.body else "(empty)")
 
-    # -----------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # Helpers
-    # -----------------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     def _current_base_url(self) -> str:
         urls = BACKEND_URLS if self.current_service == "backend" else ORACLE_URLS
@@ -573,7 +619,6 @@ class ThemaApp(App):
     def _log(self, msg: str) -> None:
         log = self.query_one("#response-log", RichLog)
         log.write(msg)
-        # Also update sidebar header (auth status may have changed)
         self.query_one("#sidebar-header", Static).update(self._sidebar_header_text())
 
 
