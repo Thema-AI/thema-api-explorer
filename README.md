@@ -73,6 +73,15 @@ Login later with `l` — credentials are validated against the API and saved per
 
 Both are auto-restored on next launch.
 
+## Troubleshooting
+
+**`pip install -e .` fails with "setup.py not found"** — upgrade pip first:
+
+```bash
+pip install --upgrade pip
+pip install -e .
+```
+
 ## Requirements
 
 - Python 3.11+
