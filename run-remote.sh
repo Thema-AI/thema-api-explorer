@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Usage: curl -sSL https://raw.githubusercontent.com/Thema-AI/thema-api-explorer/main/run-remote.sh | bash
 set -e
 
 INSTALL_DIR="$HOME/.thema-api-explorer"
-REPO="https://github.com/Thema-AI/thema-api-explorer.git"
+REPO="git@github.com:Thema-AI/thema-api-explorer.git"
 
 # Clone or pull latest
 if [ -d "$INSTALL_DIR/.git" ]; then
