@@ -12,7 +12,6 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
-    Collapsible,
     Footer,
     Header,
     Input,
@@ -37,7 +36,7 @@ from tui.config import (
 from tui.schema import APISchema, Endpoint, fetch_schema, generate_example
 
 # ---------------------------------------------------------------------------
-# Login modal
+# Modals
 # ---------------------------------------------------------------------------
 
 
@@ -56,7 +55,7 @@ class LoginScreen(ModalScreen[tuple[str, str] | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="login-box"):
-            yield Label("Login to environment", id="login-title")
+            yield Label("Login to environment")
             yield Label("Username (email):")
             yield Input(placeholder="user@example.com", id="login-username")
             yield Label("Password:")
@@ -80,13 +79,8 @@ class LoginScreen(ModalScreen[tuple[str, str] | None]):
             self.dismiss((u, p))
 
     @on(Input.Submitted)
-    def on_input_submitted(self) -> None:
+    def on_enter(self) -> None:
         self.submit()
-
-
-# ---------------------------------------------------------------------------
-# Environment / Service selectors
-# ---------------------------------------------------------------------------
 
 
 class EnvScreen(ModalScreen[str | None]):
@@ -133,14 +127,7 @@ class ServiceScreen(ModalScreen[str | None]):
         self.dismiss(["backend", "oracle"][event.option_index])
 
 
-# ---------------------------------------------------------------------------
-# First-run setup wizard
-# ---------------------------------------------------------------------------
-
-
 class SetupScreen(ModalScreen[tuple[str, str]]):
-    """First-run wizard: pick env and service."""
-
     CSS = """
     SetupScreen { align: center middle; }
     #setup-box {
@@ -149,7 +136,6 @@ class SetupScreen(ModalScreen[tuple[str, str]]):
     }
     #setup-box Label { margin-bottom: 1; }
     #setup-buttons { height: auto; margin-top: 1; align-horizontal: right; }
-    #setup-buttons Button { margin-left: 1; }
     """
 
     def compose(self) -> ComposeResult:
@@ -184,7 +170,6 @@ class SetupScreen(ModalScreen[tuple[str, str]]):
 
     @on(OptionList.OptionSelected)
     def on_option_selected(self, event: OptionList.OptionSelected) -> None:
-        # Move focus forward on selection
         if event.option_list.id == "setup-env":
             self.query_one("#setup-svc", OptionList).focus()
 
@@ -197,7 +182,103 @@ class SetupScreen(ModalScreen[tuple[str, str]]):
 
 
 # ---------------------------------------------------------------------------
-# Param row widget
+# Search bar for text content
+# ---------------------------------------------------------------------------
+
+
+class ContentSearchBar(Horizontal):
+    """Inline search bar that highlights matches in a target TextArea."""
+
+    DEFAULT_CSS = """
+    ContentSearchBar {
+        height: auto;
+        display: none;
+    }
+    ContentSearchBar.visible {
+        display: block;
+    }
+    ContentSearchBar Input {
+        width: 1fr;
+    }
+    ContentSearchBar Static {
+        width: auto;
+        padding: 0 1;
+        content-align-vertical: middle;
+    }
+    ContentSearchBar Button {
+        min-width: 5;
+    }
+    """
+
+    def __init__(self, target_id: str, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.target_id = target_id
+        self._matches: list[tuple[int, int]] = []  # (line, col) pairs
+        self._match_idx: int = -1
+
+    def compose(self) -> ComposeResult:
+        yield Input(placeholder="Search...", id=f"{self.id}-input")
+        yield Static("", id=f"{self.id}-count")
+        yield Button("x", variant="error", id=f"{self.id}-close")
+
+    def toggle(self) -> None:
+        if self.has_class("visible"):
+            self.remove_class("visible")
+        else:
+            self.add_class("visible")
+            self.query_one(f"#{self.id}-input", Input).focus()
+
+    @on(Input.Changed)
+    def on_search_input(self, event: Input.Changed) -> None:
+        query = event.value.strip().lower()
+        target = self.app.query_one(f"#{self.target_id}", TextArea)
+        text = target.text
+
+        self._matches.clear()
+        self._match_idx = -1
+
+        if not query:
+            self.query_one(f"#{self.id}-count", Static).update("")
+            return
+
+        for i, line in enumerate(text.splitlines()):
+            col = 0
+            lower_line = line.lower()
+            while True:
+                pos = lower_line.find(query, col)
+                if pos == -1:
+                    break
+                self._matches.append((i, pos))
+                col = pos + 1
+
+        count_label = self.query_one(f"#{self.id}-count", Static)
+        if self._matches:
+            self._match_idx = 0
+            count_label.update(f"1/{len(self._matches)}")
+            row, col = self._matches[0]
+            target.move_cursor((row, col))
+        else:
+            count_label.update("0/0")
+
+    @on(Input.Submitted)
+    def on_search_next(self) -> None:
+        """Move to next match on Enter."""
+        if not self._matches:
+            return
+        self._match_idx = (self._match_idx + 1) % len(self._matches)
+        count_label = self.query_one(f"#{self.id}-count", Static)
+        count_label.update(f"{self._match_idx + 1}/{len(self._matches)}")
+        target = self.app.query_one(f"#{self.target_id}", TextArea)
+        row, col = self._matches[self._match_idx]
+        target.move_cursor((row, col))
+
+    @on(Button.Pressed)
+    def on_close(self) -> None:
+        self.remove_class("visible")
+
+
+# ---------------------------------------------------------------------------
+# Param row
 # ---------------------------------------------------------------------------
 
 
@@ -254,34 +335,47 @@ METHOD_COLORS = {
 class ThemaApp(App):
     CSS = """
     #main-area { height: 1fr; }
-    #sidebar { width: 44; min-width: 30; border-right: solid $accent; }
+
+    /* Sidebar */
+    #sidebar { width: 40; min-width: 30; border-right: solid $accent; }
     #sidebar-header { height: auto; padding: 0 1; background: $boost; }
     #search-box { margin: 0 1; }
     #endpoint-tree { height: 1fr; }
+
+    /* Right area: endpoint info + params on top, then request|response side by side */
     #detail-area { width: 1fr; }
     #endpoint-info {
-        height: auto; max-height: 6; padding: 0 1;
+        height: auto; max-height: 4; padding: 0 1;
         border-bottom: solid $accent;
     }
     #params-area {
-        height: auto; max-height: 18; padding: 0 1;
+        height: auto; max-height: 14; padding: 0 1;
         border-bottom: solid $accent;
     }
     #params-title { height: auto; padding: 0 0 1 0; }
-    #request-section { height: auto; min-height: 4; max-height: 16; }
-    #body-editor { height: auto; min-height: 3; max-height: 14; }
-    #action-bar {
-        height: auto; padding: 0 1;
-        align-horizontal: left; border-bottom: solid $accent;
-    }
-    #action-bar Button { margin-right: 1; }
-    #response-section { height: 1fr; min-height: 6; }
-    #response-toolbar {
+
+    /* Request + Response side by side */
+    #req-resp-area { height: 1fr; }
+
+    /* Request panel (left) */
+    #request-panel { width: 1fr; border-right: solid $accent; }
+    #request-header {
         height: auto; padding: 0 1; background: $boost;
     }
-    #response-toolbar Button { margin-left: 1; }
+    #request-header Button { margin-left: 1; }
+    #json-lint {
+        height: auto; max-height: 2; padding: 0 1;
+    }
+    #body-editor { height: 1fr; }
+
+    /* Response panel (right) */
+    #response-panel { width: 1fr; }
+    #response-header {
+        height: auto; padding: 0 1; background: $boost;
+    }
+    #response-header Button { margin-left: 1; }
     #response-status { width: 1fr; }
-    #response-body { height: 1fr; min-height: 4; }
+    #response-body { height: 1fr; }
     """
 
     TITLE = "Thema API Explorer"
@@ -291,7 +385,7 @@ class ThemaApp(App):
         Binding("l", "login", "Login", priority=True),
         Binding("ctrl+r", "send_request", "Send", priority=True),
         Binding("/", "focus_search", "Search", priority=True),
-        Binding("f", "format_body", "Format", priority=True),
+        Binding("ctrl+f", "toggle_content_search", "Find", priority=True),
         Binding("q", "quit", "Quit", priority=True),
     ]
 
@@ -309,41 +403,67 @@ class ThemaApp(App):
         self._is_first_run: bool = not state.get("setup_done")
         self._last_response_raw: str = ""
         self._response_is_raw: bool = False
-        self._last_request_summary: str = ""
 
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal(id="main-area"):
+            # -- Sidebar --
             with Vertical(id="sidebar"):
                 yield Static(self._sidebar_header_text(), id="sidebar-header")
                 yield Input(placeholder="Search endpoints... (/)", id="search-box")
                 yield Tree("Endpoints", id="endpoint-tree")
+            # -- Detail area --
             with Vertical(id="detail-area"):
-                yield Static("Select an endpoint from the tree.", id="endpoint-info")
+                yield Static(
+                    "Select an endpoint from the tree.", id="endpoint-info"
+                )
                 with VerticalScroll(id="params-area"):
                     yield Static("", id="params-title")
-                with Collapsible(title="Request Body", id="request-section"):
-                    yield TextArea(
-                        "", language="json", id="body-editor", theme="monokai"
-                    )
-                with Horizontal(id="action-bar"):
-                    yield Button("Send (^R)", variant="primary", id="btn-send")
-                    yield Button("Format (f)", variant="default", id="btn-format")
-                    yield Button("Copy Req", variant="default", id="btn-copy-req")
-                    yield Button("Reset", variant="default", id="btn-reset")
-                with Collapsible(title="Response", id="response-section"):
-                    with Horizontal(id="response-toolbar"):
-                        yield Static("", id="response-status")
-                        yield Button("Raw", variant="default", id="btn-raw-toggle")
-                        yield Button("Copy", variant="default", id="btn-copy-resp")
-                    yield TextArea(
-                        "",
-                        language="json",
-                        id="response-body",
-                        theme="monokai",
-                        read_only=True,
-                    )
+                # -- Request | Response side by side --
+                with Horizontal(id="req-resp-area"):
+                    # Request panel
+                    with Vertical(id="request-panel"):
+                        with Horizontal(id="request-header"):
+                            yield Static("[bold]Request[/]", classes="panel-title")
+                            yield Button("Send ^R", variant="primary", id="btn-send")
+                            yield Button("Fmt", variant="default", id="btn-format")
+                            yield Button("Copy", variant="default", id="btn-copy-req")
+                            yield Button("Reset", variant="default", id="btn-reset")
+                        yield Static("", id="json-lint")
+                        yield ContentSearchBar(
+                            target_id="body-editor", id="req-search"
+                        )
+                        yield TextArea(
+                            "",
+                            language="json",
+                            id="body-editor",
+                            theme="monokai",
+                        )
+                    # Response panel
+                    with Vertical(id="response-panel"):
+                        with Horizontal(id="response-header"):
+                            yield Static("", id="response-status")
+                            yield Button(
+                                "Raw", variant="default", id="btn-raw-toggle"
+                            )
+                            yield Button(
+                                "Copy", variant="default", id="btn-copy-resp"
+                            )
+                        yield ContentSearchBar(
+                            target_id="response-body", id="resp-search"
+                        )
+                        yield TextArea(
+                            "",
+                            language="json",
+                            id="response-body",
+                            theme="monokai",
+                            read_only=True,
+                        )
         yield Footer()
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
 
     def on_mount(self) -> None:
         self.sub_title = f"{self.current_env} | {self.current_service}"
@@ -372,7 +492,10 @@ class ThemaApp(App):
             self.notify(f"Authenticating as {username}...")
             resp = await self.api_client.authenticate(username, password)
             if resp.ok:
-                self.notify(f"Authenticated ({resp.elapsed_ms:.0f}ms)", severity="information")
+                self.notify(
+                    f"Authenticated ({resp.elapsed_ms:.0f}ms)",
+                    severity="information",
+                )
             else:
                 self.notify(f"Auth failed: {resp.status_code}", severity="error")
 
@@ -399,10 +522,12 @@ class ThemaApp(App):
             branch = tree.root.add(tag, expand=False)
             for ep in endpoints:
                 color = METHOD_COLORS.get(ep.method, "white")
-                branch.add_leaf(f"[{color}]{ep.method:6s}[/] {ep.path}", data=ep)
+                branch.add_leaf(
+                    f"[{color}]{ep.method:6s}[/] {ep.path}", data=ep
+                )
 
     # ------------------------------------------------------------------
-    # Search
+    # Endpoint search (sidebar)
     # ------------------------------------------------------------------
 
     def action_focus_search(self) -> None:
@@ -440,7 +565,7 @@ class ThemaApp(App):
         from collections import OrderedDict
 
         groups: OrderedDict[str, list[Endpoint]] = OrderedDict()
-        for _score, ep in scored:
+        for _, ep in scored:
             tag = ep.tags[0] if ep.tags else "other"
             groups.setdefault(tag, []).append(ep)
 
@@ -486,6 +611,26 @@ class ThemaApp(App):
         return score
 
     # ------------------------------------------------------------------
+    # Content search (Ctrl+F) in request/response
+    # ------------------------------------------------------------------
+
+    def action_toggle_content_search(self) -> None:
+        # Toggle whichever panel is focused, default to request
+        focused = self.focused
+        if focused and self._is_child_of("response-panel", focused):
+            self.query_one("#resp-search", ContentSearchBar).toggle()
+        else:
+            self.query_one("#req-search", ContentSearchBar).toggle()
+
+    def _is_child_of(self, container_id: str, widget) -> bool:
+        node = widget
+        while node is not None:
+            if getattr(node, "id", None) == container_id:
+                return True
+            node = node.parent
+        return False
+
+    # ------------------------------------------------------------------
     # Endpoint selection
     # ------------------------------------------------------------------
 
@@ -506,7 +651,6 @@ class ThemaApp(App):
         # Params
         for old in self.query("ParamRow"):
             old.remove()
-
         all_params = ep.path_params + ep.query_params
         params_title = self.query_one("#params-title", Static)
         if all_params:
@@ -526,17 +670,38 @@ class ThemaApp(App):
             params_title.update("[dim]No parameters[/]")
 
         # Body
-        body_editor = self.query_one("#body-editor", TextArea)
+        editor = self.query_one("#body-editor", TextArea)
         if ep.request_body_schema and ep.request_body_content_type == "application/json":
             example = generate_example(ep.request_body_schema, {})
-            body_editor.text = json.dumps(example, indent=2)
+            editor.text = json.dumps(example, indent=2)
         else:
-            body_editor.text = ""
+            editor.text = ""
+        self._validate_json()
 
         # Clear response
         self.query_one("#response-status", Static).update("")
         self.query_one("#response-body", TextArea).text = ""
         self._last_response_raw = ""
+
+    # ------------------------------------------------------------------
+    # JSON live lint
+    # ------------------------------------------------------------------
+
+    @on(TextArea.Changed, "#body-editor")
+    def on_body_changed(self) -> None:
+        self._validate_json()
+
+    def _validate_json(self) -> None:
+        lint = self.query_one("#json-lint", Static)
+        text = self.query_one("#body-editor", TextArea).text.strip()
+        if not text:
+            lint.update("")
+            return
+        try:
+            json.loads(text)
+            lint.update("[green]JSON valid[/]")
+        except json.JSONDecodeError as exc:
+            lint.update(f"[red]Ln {exc.lineno} Col {exc.colno}: {exc.msg}[/]")
 
     # ------------------------------------------------------------------
     # Param collection
@@ -597,16 +762,10 @@ class ThemaApp(App):
             self.notify(f"Login failed: {resp.status_code}", severity="error")
         self.query_one("#sidebar-header", Static).update(self._sidebar_header_text())
 
-    # -- Format JSON body --
-
-    def action_format_body(self) -> None:
-        self._format_body()
+    # -- Format --
 
     @on(Button.Pressed, "#btn-format")
-    def on_format_pressed(self) -> None:
-        self._format_body()
-
-    def _format_body(self) -> None:
+    def on_format(self) -> None:
         editor = self.query_one("#body-editor", TextArea)
         text = editor.text.strip()
         if not text:
@@ -614,7 +773,7 @@ class ThemaApp(App):
         try:
             parsed = json.loads(text)
             editor.text = json.dumps(parsed, indent=2, ensure_ascii=False)
-            self.notify("JSON formatted", severity="information")
+            self.notify("Formatted", severity="information")
         except json.JSONDecodeError as exc:
             self.notify(f"Invalid JSON: {exc}", severity="error")
 
@@ -622,21 +781,20 @@ class ThemaApp(App):
 
     @on(Button.Pressed, "#btn-copy-req")
     def on_copy_req(self) -> None:
-        text = self._build_request_summary()
+        text = self._build_curl()
         self.copy_to_clipboard(text)
-        self.notify("Request copied to clipboard")
+        self.notify("Request copied as curl")
 
     @on(Button.Pressed, "#btn-copy-resp")
     def on_copy_resp(self) -> None:
         text = self._last_response_raw
         if text:
             self.copy_to_clipboard(text)
-            self.notify("Response copied to clipboard")
+            self.notify("Response copied")
         else:
             self.notify("No response to copy", severity="warning")
 
-    def _build_request_summary(self) -> str:
-        """Build a copyable request summary (curl-style)."""
+    def _build_curl(self) -> str:
         ep = self.selected_endpoint
         if not ep:
             return ""
@@ -646,23 +804,21 @@ class ThemaApp(App):
         for name in re.findall(r"\{(\w+)\}", path):
             if name in path_params:
                 path = path.replace(f"{{{name}}}", path_params[name])
-
         url = f"{self.api_client.base_url}{path}"
         if query_params:
-            qs = "&".join(f"{k}={v}" for k, v in query_params.items())
-            url = f"{url}?{qs}"
-
-        body_text = self.query_one("#body-editor", TextArea).text.strip()
+            url += "?" + "&".join(f"{k}={v}" for k, v in query_params.items())
         parts = [f"curl -X {ep.method} '{url}'"]
         parts.append("  -H 'Content-Type: application/json'")
         if self.api_client.auth.authenticated:
-            parts.append(f"  -H 'Authorization: Bearer {self.api_client.auth.access_token}'")
-        if body_text:
-            escaped = body_text.replace("'", "'\\''")
-            parts.append(f"  -d '{escaped}'")
+            parts.append(
+                f"  -H 'Authorization: Bearer {self.api_client.auth.access_token}'"
+            )
+        body = self.query_one("#body-editor", TextArea).text.strip()
+        if body:
+            parts.append(f"  -d '{body}'")
         return " \\\n".join(parts)
 
-    # -- Raw / Render toggle --
+    # -- Raw / Render --
 
     @on(Button.Pressed, "#btn-raw-toggle")
     def on_raw_toggle(self) -> None:
@@ -691,11 +847,11 @@ class ThemaApp(App):
         self._do_send()
 
     @on(Button.Pressed, "#btn-send")
-    def on_send_pressed(self) -> None:
+    def on_send(self) -> None:
         self._do_send()
 
     @on(Button.Pressed, "#btn-reset")
-    def on_reset_pressed(self) -> None:
+    def on_reset(self) -> None:
         if not self.selected_endpoint:
             return
         ep = self.selected_endpoint
@@ -715,13 +871,12 @@ class ThemaApp(App):
         if not ep:
             self.notify("No endpoint selected", severity="warning")
             return
-
         if not self.api_client.auth.authenticated:
             if "token" not in ep.path and "health" not in ep.path:
                 self.notify("Not authenticated. Press 'l' to login.", severity="warning")
                 return
 
-        # Auto-format body before sending
+        # Validate JSON first
         editor = self.query_one("#body-editor", TextArea)
         body_text = editor.text.strip()
         if body_text:
@@ -729,11 +884,10 @@ class ThemaApp(App):
                 parsed_check = json.loads(body_text)
                 editor.text = json.dumps(parsed_check, indent=2, ensure_ascii=False)
             except json.JSONDecodeError as exc:
-                self.notify(f"Invalid JSON body: {exc}", severity="error")
+                self.notify(f"Invalid JSON: {exc}", severity="error")
                 return
 
         path_params, query_params = self._collect_params()
-
         server_path = self.schema.server_path if self.schema else ""
         path = f"{server_path}{ep.path}"
         for name in re.findall(r"\{(\w+)\}", path):
@@ -742,9 +896,7 @@ class ThemaApp(App):
 
         missing = re.findall(r"\{(\w+)\}", path)
         if missing:
-            self.notify(
-                f"Missing path params: {', '.join(missing)}", severity="warning"
-            )
+            self.notify(f"Missing path params: {', '.join(missing)}", severity="warning")
             return
 
         json_body = None
@@ -768,24 +920,23 @@ class ThemaApp(App):
         self._show_response(resp)
 
     def _show_response(self, resp: APIResponse) -> None:
-        status = self.query_one("#response-status", Static)
+        status_w = self.query_one("#response-status", Static)
         resp_body = self.query_one("#response-body", TextArea)
         self._response_is_raw = False
         self.query_one("#btn-raw-toggle", Button).label = "Raw"
 
         if resp.error:
-            status.update(f"[red]Error[/] ({resp.elapsed_ms:.0f}ms)")
+            status_w.update(f"[red]Error[/] ({resp.elapsed_ms:.0f}ms)")
             resp_body.text = resp.error
             resp_body.language = None
             self._last_response_raw = resp.error
             return
 
         color = "green" if resp.ok else "red"
-        status.update(
+        status_w.update(
             f"[{color}]{resp.status_code}[/] ({resp.elapsed_ms:.0f}ms) "
             f"[dim]{len(resp.body)} bytes[/]"
         )
-
         self._last_response_raw = resp.body
         try:
             parsed = json.loads(resp.body)
@@ -794,10 +945,6 @@ class ThemaApp(App):
         except (json.JSONDecodeError, ValueError):
             resp_body.text = resp.body[:10000] if resp.body else "(empty)"
             resp_body.language = None
-
-        # Expand response section if collapsed
-        resp_section = self.query_one("#response-section", Collapsible)
-        resp_section.collapsed = False
 
     # ------------------------------------------------------------------
     # Helpers
@@ -830,9 +977,6 @@ class ThemaApp(App):
             "service": self.current_service,
             "setup_done": True,
         })
-
-    def _log(self, msg: str) -> None:
-        self.notify(msg)
 
 
 def main() -> None:
