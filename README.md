@@ -6,25 +6,17 @@ Fetches the OpenAPI schema dynamically on startup — always shows the latest en
 
 ## One-liner (like npx — no clone needed)
 
-Just paste and run (needs `python3` + GitHub SSH access):
-
 ```bash
-bash <(gh api repos/Thema-AI/thema-api-explorer/contents/run-remote.sh -q '.content' | base64 -d)
+curl -sSL https://raw.githubusercontent.com/Thema-AI/thema-api-explorer/main/run-remote.sh | bash
 ```
 
-Or copy-paste this self-contained version:
+First run installs to `~/.thema-api-explorer/`. Subsequent runs auto-update and start instantly.
+
+Or with `pipx` / `uv`:
 
 ```bash
-D=~/.thema-api-explorer; [ -d "$D/.git" ] && git -C "$D" pull -q || git clone -q git@github.com:Thema-AI/thema-api-explorer.git "$D"; [ -d "$D/.venv" ] || python3 -m venv "$D/.venv"; source "$D/.venv/bin/activate"; pip install -q -e "$D"; thema-api-explorer
-```
-
-First run clones + installs to `~/.thema-api-explorer/`. Subsequent runs pull latest and start instantly.
-
-With `pipx` / `uv`:
-
-```bash
-pipx run --spec git+ssh://git@github.com/Thema-AI/thema-api-explorer.git thema-api-explorer
-uvx --from git+ssh://git@github.com/Thema-AI/thema-api-explorer.git thema-api-explorer
+pipx run --spec git+https://github.com/Thema-AI/thema-api-explorer.git thema-api-explorer
+uvx --from git+https://github.com/Thema-AI/thema-api-explorer.git thema-api-explorer
 ```
 
 ## Quick Start (from clone)

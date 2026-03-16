@@ -2,7 +2,7 @@
 set -e
 
 INSTALL_DIR="$HOME/.thema-api-explorer"
-REPO="git@github.com:Thema-AI/thema-api-explorer.git"
+REPO="https://github.com/Thema-AI/thema-api-explorer.git"
 
 # Clone or pull latest
 if [ -d "$INSTALL_DIR/.git" ]; then
